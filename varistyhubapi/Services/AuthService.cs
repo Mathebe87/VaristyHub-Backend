@@ -44,6 +44,21 @@ public sealed class AuthService(HttpClient http, IConfiguration cfg, IOtpService
 
         return created.Id;
     }
+
+    /// <summary>Deactivate a user by banning them in GoTrue (long ban_duration).</summary>
+    public async Task DeactivateAsync(Guid userId)
+    {
+        using var req = new HttpRequestMessage(HttpMethod.Put, $"{_url}/auth/v1/admin/users/{userId}")
+        {
+            Content = JsonContent.Create(new { ban_duration = "876000h" }) // ~100 years
+        };
+        req.Headers.Add("apikey", _serviceKey);
+        req.Headers.Authorization = new AuthenticationHeaderValue("Bearer", _serviceKey);
+
+        using var resp = await http.SendAsync(req);
+        if (!resp.IsSuccessStatusCode)
+            throw new InvalidOperationException($"GoTrue deactivate failed ({(int)resp.StatusCode}).");
+    }
 }
 
 public sealed record RegisterCommand(string FullName, string Email, string? Phone, string Password, string Channel);

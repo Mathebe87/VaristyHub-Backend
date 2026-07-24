@@ -106,6 +106,27 @@ builder.Services
             options.Authority = issuer;
             options.RequireHttpsMetadata = true;
         }
+
+        // If the Supabase Access Token Hook didn't add a user_role claim, enrich it from
+        // public.profiles so [Authorize(Policy=...)] works. One DB lookup per token validation.
+        options.Events = new JwtBearerEvents
+        {
+            OnTokenValidated = async ctx =>
+            {
+                if (ctx.Principal?.Identity is not System.Security.Claims.ClaimsIdentity id) return;
+                if (id.HasClaim(c => c.Type == "user_role")) return;
+                var sub = id.FindFirst("sub")?.Value;
+                if (string.IsNullOrEmpty(sub)) return;
+                try
+                {
+                    var db = ctx.HttpContext.RequestServices.GetRequiredService<SupabaseDb>();
+                    var role = await db.GetUserRoleAsync(sub);
+                    if (!string.IsNullOrEmpty(role))
+                        id.AddClaim(new System.Security.Claims.Claim("user_role", role));
+                }
+                catch { /* role policies will 403 if the lookup fails; auth itself still succeeds */ }
+            }
+        };
     });
 
 builder.Services.AddAuthorization(o =>
@@ -113,6 +134,8 @@ builder.Services.AddAuthorization(o =>
     o.AddPolicy("Admin", p => p.RequireClaim("user_role", "super_admin"));
     o.AddPolicy("UniAdmin", p => p.RequireClaim("user_role", "university_admin", "super_admin"));
     o.AddPolicy("Counsellor", p => p.RequireClaim("user_role", "counsellor", "super_admin"));
+    o.AddPolicy("Parent", p => p.RequireClaim("user_role", "parent", "super_admin"));
+    o.AddPolicy("Student", p => p.RequireClaim("user_role", "student", "super_admin"));
 });
 
 // Data access & per-request user context
@@ -160,6 +183,9 @@ builder.Services.AddScoped<EventRepo>();
 builder.Services.AddScoped<MarketplaceRepo>();
 builder.Services.AddScoped<InterviewRepo>();
 builder.Services.AddScoped<UniAdminRepo>();
+builder.Services.AddScoped<VarsityHub.Modules.Counsellor.CounsellorRepo>();
+builder.Services.AddScoped<VarsityHub.Modules.Parent.ParentRepo>();
+builder.Services.AddScoped<VarsityHub.Modules.Admin.AdminRepo>();
 
 // Background jobs
 builder.Services.AddHostedService<DeadlineReminderService>();

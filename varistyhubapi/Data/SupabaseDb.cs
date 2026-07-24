@@ -72,4 +72,18 @@ public sealed class SupabaseDb(IConfiguration cfg)
         await conn.OpenAsync();
         return await work(conn);
     }
+
+    /// <summary>
+    /// Look up a user's role from public.profiles. Used to enrich the user_role claim when the
+    /// Supabase Access Token Hook isn't configured. Returns null if not found/invalid id.
+    /// </summary>
+    public async Task<string?> GetUserRoleAsync(string userId)
+    {
+        if (!Guid.TryParse(userId, out var id)) return null;
+        await using var conn = new NpgsqlConnection(_cs);
+        await conn.OpenAsync();
+        await using var cmd = new NpgsqlCommand("select role::text from public.profiles where id = @id", conn);
+        cmd.Parameters.AddWithValue("id", id);
+        return (await cmd.ExecuteScalarAsync()) as string;
+    }
 }
