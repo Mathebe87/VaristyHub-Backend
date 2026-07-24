@@ -1,0 +1,8 @@
+# Normalize line endings; keep shell/Docker files LF so Linux builds work.
+* text=auto
+*.cs text
+*.csproj text
+*.json text
+Dockerfile text eol=lf
+.dockerignore text eol=lf
+*.sh text eol=lf

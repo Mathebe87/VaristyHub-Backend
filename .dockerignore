@@ -1,0 +1,22 @@
+# Build artifacts
+**/bin/
+**/obj/
+**/out/
+**/publish/
+
+# IDE / VS
+.vs/
+.idea/
+*.user
+*.suo
+
+# Git
+.git/
+.gitignore
+
+# Local-only
+appsettings.Development.json
+Properties/launchSettings.json
+**/*.md
+Dockerfile
+.dockerignore

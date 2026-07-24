@@ -1,0 +1,38 @@
+# .NET build output
+[Bb]in/
+[Oo]bj/
+[Oo]ut/
+publish/
+*.dll
+*.pdb
+
+# Visual Studio / Rider
+.vs/
+.idea/
+*.user
+*.suo
+*.userosscache
+*.sln.docstates
+*.csproj.user
+
+# Rider / VS Code
+.vscode/
+
+# NuGet
+*.nupkg
+.nuget/
+packages/
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Secrets — never commit these. Use user-secrets locally, env vars in prod.
+appsettings.*.Local.json
+secrets.json
+*.env
+.env
+
+# Logs / temp
+*.log
+scratchpad/
