@@ -21,7 +21,7 @@ builder.Services.AddOpenApi();
 builder.Services.Configure<ForwardedHeadersOptions>(o =>
 {
     o.ForwardedHeaders = ForwardedHeaders.XForwardedFor | ForwardedHeaders.XForwardedProto;
-    o.KnownNetworks.Clear();
+    o.KnownIPNetworks.Clear();
     o.KnownProxies.Clear();
 });
 
@@ -125,11 +125,17 @@ if (!result.Successful)
 // Configure the HTTP request pipeline
 app.UseForwardedHeaders();
 
+// OpenAPI document (built into .NET 10) at /openapi/v1.json, with Swagger UI at /swagger.
+// Enabled in all environments so the API is explorable on Railway too.
+app.MapOpenApi();
+app.UseSwaggerUI(options =>
+{
+    options.SwaggerEndpoint("/openapi/v1.json", "Varsity Hub API v1");
+    options.RoutePrefix = "swagger";
+});
+
 if (app.Environment.IsDevelopment())
 {
-    // Serves the OpenAPI document at /openapi/v1.json (built into .NET 10).
-    app.MapOpenApi();
-
     // TLS is terminated by the platform proxy in production, so only redirect locally.
     app.UseHttpsRedirection();
 }

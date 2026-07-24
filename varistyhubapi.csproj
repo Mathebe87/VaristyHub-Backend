@@ -16,6 +16,7 @@
     <PackageReference Include="Dapper" Version="2.1.15" />
     <PackageReference Include="dbup-postgresql" Version="4.5.0" />
     <PackageReference Include="Supabase" Version="1.0.0" />
+    <PackageReference Include="Swashbuckle.AspNetCore.SwaggerUI" Version="10.2.3" />
   </ItemGroup>
 
 </Project>
