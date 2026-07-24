@@ -6,15 +6,25 @@ using VarsityHub.Services;
 namespace VarsityHub.Modules.Auth;
 
 /// <summary>
-/// Authentication endpoints: register, OTP verify, OTP resend.
-/// Registration delegates user creation to Supabase GoTrue.
-/// Rate-limited (otp bucket) to curb SMS cost and brute force.
+/// Authentication endpoints: login, register, OTP verify, OTP resend.
+/// Login/registration delegate to Supabase GoTrue — the backend never mints its own tokens.
 /// </summary>
 [ApiController]
 [Route("api/[controller]")]
-[EnableRateLimiting("otp")]
 public sealed class AuthController(IOtpService otpService, AuthService authService) : ControllerBase
 {
+    /// <summary>
+    /// Log in with email + password. Proxies Supabase GoTrue and returns the access/refresh tokens.
+    /// Use the access_token as a Bearer token for protected endpoints (and in Swagger's Authorize box).
+    /// </summary>
+    [HttpPost("login")]
+    [AllowAnonymous]
+    public async Task<ActionResult<LoginResponse>> Login([FromBody] LoginRequest body)
+    {
+        try { return Ok(await authService.LoginAsync(body.Email, body.Password)); }
+        catch (UnauthorizedAccessException ex) { return Unauthorized(new { error = ex.Message }); }
+    }
+
     /// <summary>
     /// Register a new user. Creates the Supabase GoTrue auth user server-side (email_confirm=false)
     /// and issues an OTP via the requested channel. The frontend logs in via Supabase Auth after
@@ -22,6 +32,7 @@ public sealed class AuthController(IOtpService otpService, AuthService authServi
     /// </summary>
     [HttpPost("register")]
     [AllowAnonymous]
+    [EnableRateLimiting("otp")]
     public async Task<ActionResult<object>> Register([FromBody] RegisterRequest body)
     {
         try
@@ -49,6 +60,7 @@ public sealed class AuthController(IOtpService otpService, AuthService authServi
     /// </summary>
     [HttpPost("otp/verify")]
     [AllowAnonymous]
+    [EnableRateLimiting("otp")]
     public async Task<ActionResult<VerifyOtpResponse>> VerifyOtp([FromBody] VerifyOtpRequest body)
     {
         try
@@ -71,6 +83,7 @@ public sealed class AuthController(IOtpService otpService, AuthService authServi
     /// </summary>
     [HttpPost("otp/resend")]
     [AllowAnonymous]
+    [EnableRateLimiting("otp")]
     public async Task<ActionResult<object>> ResendOtp([FromBody] ResendOtpRequest body)
     {
         try

@@ -14,6 +14,27 @@ public sealed class AuthService(HttpClient http, IConfiguration cfg, IOtpService
 {
     private readonly string _url = cfg["Supabase:Url"]!.TrimEnd('/');
     private readonly string _serviceKey = cfg["Supabase:ServiceRoleKey"]!;
+    private readonly string _anonKey = cfg["Supabase:AnonKey"] ?? "";
+
+    /// <summary>
+    /// Log in via GoTrue's password grant and return the tokens. The backend does not mint
+    /// tokens itself — this proxies Supabase Auth (handy for Swagger and non-JS clients).
+    /// </summary>
+    public async Task<LoginResponse> LoginAsync(string email, string password)
+    {
+        using var req = new HttpRequestMessage(HttpMethod.Post, $"{_url}/auth/v1/token?grant_type=password")
+        {
+            Content = JsonContent.Create(new { email, password })
+        };
+        req.Headers.Add("apikey", _anonKey);
+
+        using var resp = await http.SendAsync(req);
+        if (!resp.IsSuccessStatusCode)
+            throw new UnauthorizedAccessException("Invalid email or password.");
+
+        return await resp.Content.ReadFromJsonAsync<LoginResponse>()
+               ?? throw new InvalidOperationException("GoTrue returned no token.");
+    }
 
     public async Task<Guid> RegisterAsync(RegisterCommand r)
     {
@@ -64,3 +85,9 @@ public sealed class AuthService(HttpClient http, IConfiguration cfg, IOtpService
 public sealed record RegisterCommand(string FullName, string Email, string? Phone, string Password, string Channel);
 
 public sealed record GoTrueUser([property: JsonPropertyName("id")] Guid Id, [property: JsonPropertyName("email")] string? Email);
+
+public sealed record LoginResponse(
+    [property: JsonPropertyName("access_token")] string AccessToken,
+    [property: JsonPropertyName("refresh_token")] string RefreshToken,
+    [property: JsonPropertyName("token_type")] string TokenType,
+    [property: JsonPropertyName("expires_in")] int ExpiresIn);

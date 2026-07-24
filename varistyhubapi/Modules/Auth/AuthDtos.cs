@@ -1,6 +1,11 @@
 namespace VarsityHub.Modules.Auth;
 
 /// <summary>
+/// Request to log in (email + password) — proxied to Supabase GoTrue.
+/// </summary>
+public record LoginRequest(string Email, string Password);
+
+/// <summary>
 /// Request to register a new user. Creates the GoTrue auth user server-side, then issues an OTP.
 /// </summary>
 public record RegisterRequest(string FullName, string Email, string? Phone, string Password, string Channel = "email");
