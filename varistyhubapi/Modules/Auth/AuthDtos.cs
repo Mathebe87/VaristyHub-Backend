@@ -1,10 +1,9 @@
 namespace VarsityHub.Modules.Auth;
 
 /// <summary>
-/// Request to register a new user.
-/// Email and password are sent to Supabase GoTrue.
+/// Request to register a new user. Creates the GoTrue auth user server-side, then issues an OTP.
 /// </summary>
-public record RegisterRequest(string Email, string Password, string? PhoneNumber);
+public record RegisterRequest(string FullName, string Email, string? Phone, string Password, string Channel = "email");
 
 /// <summary>
 /// Request to verify an OTP code.

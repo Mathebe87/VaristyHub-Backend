@@ -1,5 +1,6 @@
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
+using Microsoft.AspNetCore.RateLimiting;
 using VarsityHub.Services;
 
 namespace VarsityHub.Modules.Auth;
@@ -7,19 +8,17 @@ namespace VarsityHub.Modules.Auth;
 /// <summary>
 /// Authentication endpoints: register, OTP verify, OTP resend.
 /// Registration delegates user creation to Supabase GoTrue.
-/// OTP verification emails the user's profile.
+/// Rate-limited (otp bucket) to curb SMS cost and brute force.
 /// </summary>
 [ApiController]
 [Route("api/[controller]")]
-public sealed class AuthController(IOtpService otpService) : ControllerBase
+[EnableRateLimiting("otp")]
+public sealed class AuthController(IOtpService otpService, AuthService authService) : ControllerBase
 {
     /// <summary>
-    /// Register a new user with email and password.
-    /// Delegates to Supabase GoTrue API.
-    /// Returns: user ID and prompts for OTP verification.
-    /// 
-    /// TODO: Integrate with Supabase GoTrace REST API to create user and get user ID.
-    /// Response should include { userId, message: "OTP sent to your email" }
+    /// Register a new user. Creates the Supabase GoTrue auth user server-side (email_confirm=false)
+    /// and issues an OTP via the requested channel. The frontend logs in via Supabase Auth after
+    /// verification to obtain a JWT.
     /// </summary>
     [HttpPost("register")]
     [AllowAnonymous]
@@ -27,15 +26,18 @@ public sealed class AuthController(IOtpService otpService) : ControllerBase
     {
         try
         {
-            // Call Supabase GoTrue /auth/v1/signup to create user
-            // For now, return a placeholder
+            var userId = await authService.RegisterAsync(new RegisterCommand(
+                body.FullName, body.Email, body.Phone, body.Password, body.Channel));
+
             return Ok(new
             {
-                message = "User registered. Check your email for verification code.",
-                userId = Guid.NewGuid()
+                userId,
+                message = body.Channel == "sms"
+                    ? "User registered. Check your phone for the verification code."
+                    : "User registered. Check your email for the verification code."
             });
         }
-        catch (Exception ex)
+        catch (InvalidOperationException ex)
         {
             return BadRequest(new { error = ex.Message });
         }
