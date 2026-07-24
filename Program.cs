@@ -1,6 +1,7 @@
 using System.Threading.RateLimiting;
 using Microsoft.AspNetCore.Authentication.JwtBearer;
 using Microsoft.AspNetCore.Diagnostics;
+using Microsoft.AspNetCore.Diagnostics.HealthChecks;
 using Microsoft.AspNetCore.HttpOverrides;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.AspNetCore.RateLimiting;
@@ -163,26 +164,31 @@ builder.Services.AddScoped<UniAdminRepo>();
 // Background jobs
 builder.Services.AddHostedService<DeadlineReminderService>();
 
-// Health checks (DB probe)
+// Health checks — DB probe tagged "ready" so liveness stays DB-independent.
 builder.Services.AddHealthChecks()
-    .AddNpgSql(builder.Configuration.GetConnectionString("Supabase")!, name: "db");
+    .AddNpgSql(builder.Configuration.GetConnectionString("Supabase")!, name: "db", tags: ["ready"]);
 
 var app = builder.Build();
 
-// Run database migrations (DbUp — no-op until embedded Migrations/*.sql exist)
-var cs = app.Configuration.GetConnectionString("Supabase")!;
-var upgrader = DeployChanges.To
-    .PostgresqlDatabase(cs)
-    .WithScriptsEmbeddedInAssembly(System.Reflection.Assembly.GetExecutingAssembly())
-    .WithTransaction()
-    .LogToConsole()
-    .Build();
-
-var result = upgrader.PerformUpgrade();
-if (!result.Successful)
+// Optional startup migrations (DbUp). Off by default: the schema is managed in Supabase and
+// there are no embedded scripts, so we don't want a DB hiccup to crash-loop the container.
+// Enable with Database__RunMigrations=true once you add Migrations/*.sql.
+if (app.Configuration.GetValue<bool>("Database:RunMigrations"))
 {
-    app.Logger.LogError(result.Error, "Database migration failed");
-    throw new Exception("DB migration failed", result.Error);
+    var cs = app.Configuration.GetConnectionString("Supabase")!;
+    var upgrader = DeployChanges.To
+        .PostgresqlDatabase(cs)
+        .WithScriptsEmbeddedInAssembly(System.Reflection.Assembly.GetExecutingAssembly())
+        .WithTransaction()
+        .LogToConsole()
+        .Build();
+
+    var result = upgrader.PerformUpgrade();
+    if (!result.Successful)
+    {
+        app.Logger.LogError(result.Error, "Database migration failed");
+        throw new Exception("DB migration failed", result.Error);
+    }
 }
 
 // ---- HTTP pipeline ----
@@ -223,6 +229,10 @@ app.UseAuthentication();
 app.UseAuthorization();
 
 app.MapControllers();
-app.MapHealthChecks("/health");
+
+// Liveness: process is up (no DB dependency) — this is Railway's healthcheck target.
+app.MapHealthChecks("/health", new HealthCheckOptions { Predicate = _ => false });
+// Readiness: includes the DB probe.
+app.MapHealthChecks("/health/ready", new HealthCheckOptions { Predicate = c => c.Tags.Contains("ready") });
 
 app.Run();
