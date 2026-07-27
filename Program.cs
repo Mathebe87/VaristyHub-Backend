@@ -88,7 +88,16 @@ builder.Services
     .AddJwtBearer(options =>
     {
         var issuer = builder.Configuration["Jwt:Issuer"]!;
-        var jwtSecret = builder.Configuration["Jwt:Secret"];
+
+        // Supabase signs user access tokens with ASYMMETRIC keys (ES256) served via JWKS.
+        // Authority makes the middleware discover the OpenID config + JWKS and validate them
+        // automatically. (Its /.well-known/openid-configuration + /jwks.json must be reachable.)
+        options.Authority = issuer;
+        options.RequireHttpsMetadata = true;
+
+        // Keep original JWT claim names ("sub", "email", "role") instead of remapping them to
+        // the legacy SOAP URIs — otherwise FindFirst("sub") is null and requests run as anon.
+        options.MapInboundClaims = false;
 
         options.TokenValidationParameters = new TokenValidationParameters
         {
@@ -100,19 +109,13 @@ builder.Services
             NameClaimType = "sub"
         };
 
+        // Back-compat: also accept legacy HS256 shared-secret tokens when Jwt:Secret is set.
+        // The JWKS keys (from Authority) and this symmetric key are combined at validation time,
+        // and legacy anon/service keys still fail the issuer check — so this is safe.
+        var jwtSecret = builder.Configuration["Jwt:Secret"];
         if (!string.IsNullOrEmpty(jwtSecret))
-        {
-            // Legacy Supabase projects sign access tokens with the shared HS256 JWT secret.
-            options.TokenValidationParameters.ValidateIssuerSigningKey = true;
-            options.TokenValidationParameters.IssuerSigningKey =
-                new SymmetricSecurityKey(System.Text.Encoding.UTF8.GetBytes(jwtSecret));
-        }
-        else
-        {
-            // Modern projects use asymmetric signing keys discovered via JWKS.
-            options.Authority = issuer;
-            options.RequireHttpsMetadata = true;
-        }
+            options.TokenValidationParameters.IssuerSigningKeys =
+                [new SymmetricSecurityKey(System.Text.Encoding.UTF8.GetBytes(jwtSecret))];
 
         // If the Supabase Access Token Hook didn't add a user_role claim, enrich it from
         // public.profiles so [Authorize(Policy=...)] works. One DB lookup per token validation.
