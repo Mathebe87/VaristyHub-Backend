@@ -50,9 +50,16 @@ builder.Services.Configure<ForwardedHeadersOptions>(o =>
     o.KnownProxies.Clear();
 });
 
-// CORS — allowed origins come from config (Cors:AllowedOrigins), env-overridable in prod.
-var allowedOrigins = builder.Configuration.GetSection("Cors:AllowedOrigins").Get<string[]>()
-    ?? new[] { "http://localhost:3000" };
+// CORS — allowed origins from config. Either an array (Cors:AllowedOrigins) or a single
+// comma-separated value (Cors:Origins, e.g. "http://localhost:8080,https://app.example").
+var allowedOrigins = builder.Configuration.GetSection("Cors:AllowedOrigins").Get<string[]>();
+if (allowedOrigins is null || allowedOrigins.Length == 0)
+{
+    var csv = builder.Configuration["Cors:Origins"];
+    allowedOrigins = string.IsNullOrWhiteSpace(csv)
+        ? ["http://localhost:3000", "http://localhost:8080"]
+        : csv.Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries);
+}
 builder.Services.AddCors(options =>
 {
     options.AddPolicy("Frontend", policy => policy
