@@ -14,6 +14,9 @@ public sealed class ClaudeClient(IHttpClientFactory httpFactory, IConfiguration 
     private readonly string _model = cfg["Claude:Model"] ?? "claude-opus-4-8";
     private readonly string _apiKey = cfg["Claude:ApiKey"] ?? "";
 
+    /// <summary>True when a Claude API key is configured; AI features no-op gracefully otherwise.</summary>
+    public bool IsConfigured => !string.IsNullOrEmpty(_apiKey);
+
     public async Task<string> CompleteAsync(string system, string userPrompt, int maxTokens = 2048, CancellationToken ct = default)
     {
         if (string.IsNullOrEmpty(_apiKey))

@@ -11,6 +11,8 @@ public sealed class RecommendationService(ClaudeClient claude, SupabaseDb db, IU
 {
     public async Task<List<RankedItem>> RecommendJobsAsync()
     {
+        if (!claude.IsConfigured) return []; // AI not configured — return empty rather than error
+
         var (profileJson, jobsJson) = await db.AsUserAsync(me.UserId!, me.Email, async (c, tx) =>
         {
             var profile = await c.ExecuteScalarAsync<string>(new CommandDefinition("""
@@ -35,6 +37,8 @@ public sealed class RecommendationService(ClaudeClient claude, SupabaseDb db, IU
 
     public async Task<List<RankedItem>> RecommendBursariesAsync()
     {
+        if (!claude.IsConfigured) return [];
+
         var (profileJson, bursariesJson) = await db.AsUserAsync(me.UserId!, me.Email, async (c, tx) =>
         {
             var profile = await c.ExecuteScalarAsync<string>(new CommandDefinition("""
