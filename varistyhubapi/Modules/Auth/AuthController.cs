@@ -26,9 +26,9 @@ public sealed class AuthController(IOtpService otpService, AuthService authServi
     }
 
     /// <summary>
-    /// Register a new user. Creates the Supabase GoTrue auth user server-side (email_confirm=false)
-    /// and issues an OTP via the requested channel. The frontend logs in via Supabase Auth after
-    /// verification to obtain a JWT.
+    /// Register a new user. Creates the Supabase GoTrue auth user server-side (auto-confirmed by
+    /// default) so the user can immediately call POST /api/auth/login. The frontend only sends
+    /// these fields and stores the JWT returned by login — no Supabase SDK required.
     /// </summary>
     [HttpPost("register")]
     [AllowAnonymous]
@@ -40,13 +40,7 @@ public sealed class AuthController(IOtpService otpService, AuthService authServi
             var userId = await authService.RegisterAsync(new RegisterCommand(
                 body.FullName, body.Email, body.Phone, body.Password, body.Channel));
 
-            return Ok(new
-            {
-                userId,
-                message = body.Channel == "sms"
-                    ? "User registered. Check your phone for the verification code."
-                    : "User registered. Check your email for the verification code."
-            });
+            return Ok(new { userId, message = "Account created. You can now log in." });
         }
         catch (InvalidOperationException ex)
         {

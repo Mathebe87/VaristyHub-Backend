@@ -5,16 +5,19 @@ using System.Text.Json.Serialization;
 namespace VarsityHub.Services;
 
 /// <summary>
-/// Server-side registration via the Supabase GoTrue Admin API using the service-role key.
-/// Creates the auth user with email_confirm=false (we run our own OTP step), stashing
-/// role/full_name/phone in user_metadata for the handle_new_user trigger.
-/// The frontend still logs in through Supabase Auth to obtain a JWT after verification.
+/// Server-side auth via the Supabase GoTrue Admin API using the service-role key.
+/// The backend owns registration/login end to end — the frontend only sends
+/// credentials and stores the returned JWT. No frontend Supabase SDK required.
 /// </summary>
-public sealed class AuthService(HttpClient http, IConfiguration cfg, IOtpService otp)
+public sealed class AuthService(HttpClient http, IConfiguration cfg)
 {
     private readonly string _url = cfg["Supabase:Url"]!.TrimEnd('/');
     private readonly string _serviceKey = cfg["Supabase:ServiceRoleKey"]!;
     private readonly string _anonKey = cfg["Supabase:AnonKey"] ?? "";
+    // Auto-confirm new users so they can log in immediately (no email step).
+    // Set Auth:RequireEmailConfirmation=true later to switch on verification.
+    private readonly bool _autoConfirm =
+        !cfg.GetValue<bool>("Auth:RequireEmailConfirmation");
 
     /// <summary>
     /// Log in via GoTrue's password grant and return the tokens. The backend does not mint
@@ -38,18 +41,20 @@ public sealed class AuthService(HttpClient http, IConfiguration cfg, IOtpService
 
     public async Task<Guid> RegisterAsync(RegisterCommand r)
     {
-        http.DefaultRequestHeaders.Add("apikey", _serviceKey);
-        http.DefaultRequestHeaders.Authorization = new AuthenticationHeaderValue("Bearer", _serviceKey);
-
-        var body = new
+        using var req = new HttpRequestMessage(HttpMethod.Post, $"{_url}/auth/v1/admin/users")
         {
-            email = r.Email,
-            password = r.Password,
-            email_confirm = false,
-            user_metadata = new { role = "student", full_name = r.FullName, phone = r.Phone }
+            Content = JsonContent.Create(new
+            {
+                email = r.Email,
+                password = r.Password,
+                email_confirm = _autoConfirm, // true => active immediately, no email/link
+                user_metadata = new { role = "student", full_name = r.FullName, phone = r.Phone }
+            })
         };
+        req.Headers.Add("apikey", _serviceKey);
+        req.Headers.Authorization = new AuthenticationHeaderValue("Bearer", _serviceKey);
 
-        var resp = await http.PostAsJsonAsync($"{_url}/auth/v1/admin/users", body);
+        using var resp = await http.SendAsync(req);
         if (!resp.IsSuccessStatusCode)
         {
             var detail = await resp.Content.ReadAsStringAsync();
@@ -58,11 +63,6 @@ public sealed class AuthService(HttpClient http, IConfiguration cfg, IOtpService
 
         var created = await resp.Content.ReadFromJsonAsync<GoTrueUser>()
                       ?? throw new InvalidOperationException("GoTrue returned no user.");
-
-        var channel = r.Channel == "sms" ? "sms" : "email";
-        var destination = channel == "sms" ? r.Phone! : r.Email;
-        await otp.IssueAsync(created.Id, destination, channel);
-
         return created.Id;
     }
 
