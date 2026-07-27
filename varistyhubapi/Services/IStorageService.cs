@@ -48,6 +48,6 @@ public record DocumentDetail(
     string Name,
     string Type,  // resume, transcript, etc
     string StoragePath,
-    long SizeBytes,
+    long? SizeBytes,
     DateTime CreatedAt
 );

@@ -129,7 +129,7 @@ public sealed class StorageService : IStorageService
                        size_bytes as SizeBytes, uploaded_at as CreatedAt
                 from public.documents
                 where student_id = @studentId
-                order by created_at desc
+                order by uploaded_at desc
             """, new { studentId }, tx)));
     }
 
