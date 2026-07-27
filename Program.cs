@@ -57,7 +57,7 @@ if (allowedOrigins is null || allowedOrigins.Length == 0)
 {
     var csv = builder.Configuration["Cors:Origins"];
     allowedOrigins = string.IsNullOrWhiteSpace(csv)
-        ? ["http://localhost:3000", "http://localhost:8080"]
+        ? ["http://localhost:3000", "http://localhost:8080", "https://future-pathways-hub.vercel.app"]
         : csv.Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries);
 }
 builder.Services.AddCors(options =>
