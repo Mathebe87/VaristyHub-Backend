@@ -9,6 +9,9 @@ namespace VarsityHub.Modules.Admin;
 public record AdminSummary(int Students, int Counsellors, int Parents, int UniAdmins, int SuperAdmins, int Applications, int Universities, decimal Revenue);
 public record AdminUser(Guid Id, string Role, string FullName, string? Email, string? Phone, DateTime CreatedAt);
 public record SetRole(string Role);
+public record CreateUserRequest(
+    string FullName, string Email, string Password, string Role,
+    string? Phone, Guid? UniversityId, Guid? StudentId, string? Relationship, string? Title);
 public record AdminUniversity(Guid Id, string Name, string ShortCode, string Province, string? Domain, string? Website, bool IsVerified);
 public record NewUniversity(string Name, string ShortCode, string Province, string? Domain, string? Website);
 public record UpdateUniversity(string? Name, string? Province, string? Domain, string? Website, bool? IsVerified);
@@ -258,6 +261,34 @@ public sealed class AdminController(AdminRepo repo, IAuditService audit, AuthSer
     public async Task<ActionResult<IEnumerable<AdminUser>>> Users(
         [FromQuery] string? role, [FromQuery] string? q, [FromQuery] int page = 1, [FromQuery] int pageSize = 50)
         => Ok(await repo.UsersAsync(role, q, Math.Min(pageSize, 200), (Math.Max(1, page) - 1) * pageSize));
+
+    private static readonly string[] Roles =
+        ["student", "counsellor", "parent", "university_admin", "super_admin"];
+
+    // Create a user with a role (and optionally link them) in one call — for the admin console.
+    [HttpPost("users")]
+    public async Task<ActionResult<object>> CreateUser([FromBody] CreateUserRequest body)
+    {
+        if (!Roles.Contains(body.Role))
+            return BadRequest(new { error = $"Invalid role '{body.Role}'." });
+
+        try
+        {
+            var id = await authService.CreateUserAsync(body.FullName, body.Email, body.Phone, body.Password, body.Role);
+
+            // Optional linking based on role.
+            if (body.Role == "university_admin" && body.UniversityId is Guid uni)
+                await repo.AssignAdminAsync(uni, id, body.Title);
+            else if (body.Role == "parent" && body.StudentId is Guid psid)
+                await repo.LinkAsync(new LinkRequest("parent", id, psid, body.Relationship));
+            else if (body.Role == "counsellor" && body.StudentId is Guid csid)
+                await repo.LinkAsync(new LinkRequest("counsellor", id, csid, null));
+
+            await audit.LogAsync(ActorId, "user.created", "user", id, new { body.Role, body.Email });
+            return Ok(new { id });
+        }
+        catch (InvalidOperationException ex) { return BadRequest(new { error = ex.Message }); }
+    }
 
     [HttpPatch("users/{id}/role")]
     public async Task<IActionResult> SetRole(Guid id, [FromBody] SetRole body)

@@ -39,16 +39,25 @@ public sealed class AuthService(HttpClient http, IConfiguration cfg)
                ?? throw new InvalidOperationException("GoTrue returned no token.");
     }
 
-    public async Task<Guid> RegisterAsync(RegisterCommand r)
+    // Self-service registration is always a student.
+    public Task<Guid> RegisterAsync(RegisterCommand r) =>
+        CreateUserAsync(r.FullName, r.Email, r.Phone, r.Password, "student", _autoConfirm);
+
+    /// <summary>
+    /// Create a GoTrue user with an explicit role (admin use). The handle_new_user trigger
+    /// reads the role from user_metadata and provisions the matching profile row.
+    /// </summary>
+    public async Task<Guid> CreateUserAsync(string fullName, string email, string? phone, string password,
+        string role, bool emailConfirm = true)
     {
         using var req = new HttpRequestMessage(HttpMethod.Post, $"{_url}/auth/v1/admin/users")
         {
             Content = JsonContent.Create(new
             {
-                email = r.Email,
-                password = r.Password,
-                email_confirm = _autoConfirm, // true => active immediately, no email/link
-                user_metadata = new { role = "student", full_name = r.FullName, phone = r.Phone }
+                email,
+                password,
+                email_confirm = emailConfirm,
+                user_metadata = new { role, full_name = fullName, phone }
             })
         };
         req.Headers.Add("apikey", _serviceKey);
