@@ -190,6 +190,7 @@ builder.Services.AddScoped<EventRepo>();
 builder.Services.AddScoped<MarketplaceRepo>();
 builder.Services.AddScoped<InterviewRepo>();
 builder.Services.AddScoped<UniAdminRepo>();
+builder.Services.AddScoped<VarsityHub.Modules.Accommodation.AccommodationRepo>();
 builder.Services.AddScoped<VarsityHub.Modules.Counsellor.CounsellorRepo>();
 builder.Services.AddScoped<VarsityHub.Modules.Parent.ParentRepo>();
 builder.Services.AddScoped<VarsityHub.Modules.Admin.AdminRepo>();
