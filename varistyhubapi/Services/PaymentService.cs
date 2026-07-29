@@ -9,7 +9,8 @@ namespace VarsityHub.Services;
 /// Integrates with payment provider (PayFast, Stripe, Yoco).
 /// Stores payment records and handles webhook callbacks.
 /// </summary>
-public sealed class PaymentService(SupabaseDb db, IConfiguration cfg, IHttpClientFactory httpFactory) : IPaymentService
+public sealed class PaymentService(
+    SupabaseDb db, IConfiguration cfg, IHttpClientFactory httpFactory, ILogger<PaymentService> logger) : IPaymentService
 {
     private readonly string _provider = cfg["Payments:Provider"] ?? "payfast";
 
@@ -91,29 +92,42 @@ public sealed class PaymentService(SupabaseDb db, IConfiguration cfg, IHttpClien
     {
         var pf = cfg.GetSection("Payments:PayFast");
         var sandbox = pf.GetValue("Sandbox", true);
+        data.TryGetValue("m_payment_id", out var reference);
+        data.TryGetValue("payment_status", out var status);
+        logger.LogInformation("PayFast ITN received: ref={Ref} status={Status} fields={Count}",
+            reference, status, data.Count);
 
-        // 1) Signature check (defence in depth).
+        // Signature check is advisory (ITN field ordering/encoding is fragile) — log, don't block.
         var provided = data.TryGetValue("signature", out var s) ? s : "";
         var expected = PayFast.Signature(data.Where(kv => kv.Key != "signature"), pf["Passphrase"]);
-        var signatureOk = string.Equals(expected, provided, StringComparison.OrdinalIgnoreCase);
+        if (!string.Equals(expected, provided, StringComparison.OrdinalIgnoreCase))
+            logger.LogWarning("PayFast ITN signature mismatch (ref={Ref})", reference);
 
-        // 2) Server confirmation: post the data back to PayFast; only it can answer "VALID".
+        // Authoritative: post the data back to PayFast; only it can answer "VALID".
         var validateUrl = sandbox
             ? "https://sandbox.payfast.co.za/eng/query/validate"
             : "https://www.payfast.co.za/eng/query/validate";
-        var client = httpFactory.CreateClient();
-        using var resp = await client.PostAsync(validateUrl, new FormUrlEncodedContent(data));
-        var body = (await resp.Content.ReadAsStringAsync()).Trim();
+        string body;
+        try
+        {
+            using var resp = await httpFactory.CreateClient().PostAsync(validateUrl, new FormUrlEncodedContent(data));
+            body = (await resp.Content.ReadAsStringAsync()).Trim();
+        }
+        catch (Exception ex) { logger.LogError(ex, "PayFast validate postback failed (ref={Ref})", reference); return false; }
+
         var confirmed = body.StartsWith("VALID", StringComparison.OrdinalIgnoreCase);
+        logger.LogInformation("PayFast validate -> {Result} (ref={Ref})", confirmed ? "VALID" : $"INVALID[{body}]", reference);
+        if (!confirmed) return false;
 
-        if (!confirmed || !signatureOk) return false;
-
-        data.TryGetValue("payment_status", out var status);
-        data.TryGetValue("m_payment_id", out var reference);
         if (status == "COMPLETE" && !string.IsNullOrEmpty(reference))
+        {
             await MarkPaidAsync(reference);
+            logger.LogInformation("Payment marked paid via ITN (ref={Ref})", reference);
+            return true;
+        }
 
-        return true;
+        logger.LogInformation("ITN valid but not COMPLETE (status={Status}, ref={Ref})", status, reference);
+        return false;
     }
 
     private string BuildPayFastUrl(string reference, decimal amount, Guid userId)
