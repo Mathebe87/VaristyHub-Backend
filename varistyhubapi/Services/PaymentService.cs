@@ -1,4 +1,5 @@
 using System.Data;
+using System.Globalization;
 using Dapper;
 
 namespace VarsityHub.Services;
@@ -8,7 +9,7 @@ namespace VarsityHub.Services;
 /// Integrates with payment provider (PayFast, Stripe, Yoco).
 /// Stores payment records and handles webhook callbacks.
 /// </summary>
-public sealed class PaymentService(SupabaseDb db, IConfiguration cfg) : IPaymentService
+public sealed class PaymentService(SupabaseDb db, IConfiguration cfg, IHttpClientFactory httpFactory) : IPaymentService
 {
     private readonly string _provider = cfg["Payments:Provider"] ?? "payfast";
 
@@ -81,15 +82,66 @@ public sealed class PaymentService(SupabaseDb db, IConfiguration cfg) : IPayment
             """, new { studentId }));
     }
 
-    private static string BuildPayFastUrl(string reference, decimal amount, Guid userId)
+    /// <summary>
+    /// Handle a PayFast ITN (Instant Transaction Notification). Confirms the notification is
+    /// genuine by posting it back to PayFast (the authoritative check), then marks the payment
+    /// paid when status is COMPLETE. Returns true if processed.
+    /// </summary>
+    public async Task<bool> HandleItnAsync(IDictionary<string, string> data)
     {
-        // TODO: Build PayFast payment URL with merchant ID, signature, etc.
-        return $"https://www.payfast.co.za/eng/process?ref={reference}&amt={amount}";
+        var pf = cfg.GetSection("Payments:PayFast");
+        var sandbox = pf.GetValue("Sandbox", true);
+
+        // 1) Signature check (defence in depth).
+        var provided = data.TryGetValue("signature", out var s) ? s : "";
+        var expected = PayFast.Signature(data.Where(kv => kv.Key != "signature"), pf["Passphrase"]);
+        var signatureOk = string.Equals(expected, provided, StringComparison.OrdinalIgnoreCase);
+
+        // 2) Server confirmation: post the data back to PayFast; only it can answer "VALID".
+        var validateUrl = sandbox
+            ? "https://sandbox.payfast.co.za/eng/query/validate"
+            : "https://www.payfast.co.za/eng/query/validate";
+        var client = httpFactory.CreateClient();
+        using var resp = await client.PostAsync(validateUrl, new FormUrlEncodedContent(data));
+        var body = (await resp.Content.ReadAsStringAsync()).Trim();
+        var confirmed = body.StartsWith("VALID", StringComparison.OrdinalIgnoreCase);
+
+        if (!confirmed || !signatureOk) return false;
+
+        data.TryGetValue("payment_status", out var status);
+        data.TryGetValue("m_payment_id", out var reference);
+        if (status == "COMPLETE" && !string.IsNullOrEmpty(reference))
+            await MarkPaidAsync(reference);
+
+        return true;
+    }
+
+    private string BuildPayFastUrl(string reference, decimal amount, Guid userId)
+    {
+        var pf = cfg.GetSection("Payments:PayFast");
+        var baseUrl = pf.GetValue("Sandbox", true)
+            ? "https://sandbox.payfast.co.za/eng/process"
+            : "https://www.payfast.co.za/eng/process";
+
+        var fields = new List<KeyValuePair<string, string>>
+        {
+            new("merchant_id",  pf["MerchantId"] ?? ""),
+            new("merchant_key", pf["MerchantKey"] ?? ""),
+            new("return_url",   pf["ReturnUrl"] ?? ""),
+            new("cancel_url",   pf["CancelUrl"] ?? ""),
+            new("notify_url",   pf["NotifyUrl"] ?? ""),
+            new("m_payment_id", reference),
+            new("amount",       amount.ToString("0.00", CultureInfo.InvariantCulture)),
+            new("item_name",    "Varsity Hub application fee"),
+        };
+        fields.Add(new("signature", PayFast.Signature(fields, pf["Passphrase"])));
+
+        var query = string.Join("&", fields
+            .Where(f => !string.IsNullOrEmpty(f.Value))
+            .Select(f => $"{f.Key}={PayFast.Encode(f.Value)}"));
+        return $"{baseUrl}?{query}";
     }
 
     private static string BuildStripeUrl(string reference, decimal amount)
-    {
-        // TODO: Create Stripe checkout session and return session URL
-        return $"https://checkout.stripe.com/session/{reference}";
-    }
+        => $"https://checkout.stripe.com/session/{reference}";
 }

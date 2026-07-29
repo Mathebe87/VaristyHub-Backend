@@ -26,6 +26,11 @@ public interface IPaymentService
     /// Mirrors the check in ApplicationRepo.CreateAsync.
     /// </summary>
     Task<bool> HasPaidFeeAsync(Guid studentId);
+
+    /// <summary>
+    /// Handle a PayFast ITN callback: verify with PayFast, then mark the payment paid.
+    /// </summary>
+    Task<bool> HandleItnAsync(IDictionary<string, string> data);
 }
 
 /// <summary>

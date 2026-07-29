@@ -36,39 +36,19 @@ public sealed class PaymentsController(IPaymentService paymentService) : Control
     }
 
     /// <summary>
-    /// Webhook endpoint for payment provider callbacks.
-    /// Verifies the provider's signature (if present) and marks payment as paid.
-    /// Called by PayFast, Stripe, Yoco, etc.
-    /// 
-    /// CRITICAL: Verify the webhook signature before trusting the payload!
-    /// Each provider has its own signature method (HMAC-SHA256, etc).
+    /// PayFast ITN (Instant Transaction Notification) callback. PayFast POSTs form-encoded data
+    /// here; we verify it with PayFast (server confirmation + signature) before marking paid.
+    /// Always returns 200 so PayFast doesn't retry; genuineness is enforced inside the service.
     /// </summary>
     [HttpPost("webhook")]
     [AllowAnonymous]
-    public async Task<IActionResult> Webhook([FromBody] PaymentWebhookRequest body)
+    public async Task<IActionResult> Webhook()
     {
-        try
-        {
-            // TODO: Verify provider signature
-            // throw new UnauthorizedAccessException("Invalid webhook signature");
-
-            // Only process 'paid' status
-            if (body.Status != "paid")
-                return Ok();
-
-            // Mark payment as paid in database
-            await paymentService.MarkPaidAsync(body.Reference);
-
-            return Ok(new { message = "Payment processed successfully" });
-        }
-        catch (UnauthorizedAccessException)
-        {
-            return Forbid();
-        }
-        catch (Exception ex)
-        {
-            return BadRequest(new { error = ex.Message });
-        }
+        var form = await Request.ReadFormAsync();
+        var data = form.ToDictionary(kv => kv.Key, kv => kv.Value.ToString());
+        try { await paymentService.HandleItnAsync(data); }
+        catch { /* swallow — never signal failure to PayFast, it would retry indefinitely */ }
+        return Ok();
     }
 
     /// <summary>
