@@ -1,5 +1,6 @@
 using System.Data;
 using Dapper;
+using Npgsql;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 using VarsityHub.Services;
@@ -12,9 +13,14 @@ public record UniApplicationDetail(Guid Id, Guid StudentId, string ApplicantName
 public record UniDocItem(Guid Id, Guid ApplicationId, string Name, string Type, string StoragePath, bool IsVerified);
 public record ProgrammeAppCount(Guid ProgrammeId, string Programme, int Count);
 public record UniProgrammeDto(Guid Id, string Name, string Qualification, int MinAps, Guid? FacultyId, decimal? TuitionPerYear, decimal? DurationYears, DateTime? ApplicationDeadline, bool IsActive);
-public record NewProgramme(Guid UniversityId, Guid? FacultyId, string Name, string Qualification, int MinAps, decimal? DurationYears, decimal? TuitionPerYear, string? Description, DateTime? ApplicationDeadline);
+public record NewProgramme(Guid? UniversityId, Guid? FacultyId, string Name, string Qualification, int MinAps, decimal? DurationYears, decimal? TuitionPerYear, string? Description, DateTime? ApplicationDeadline);
 public record UpdateProgramme(string? Name, int? MinAps, decimal? TuitionPerYear, decimal? DurationYears, DateTime? ApplicationDeadline, string? Description, bool? IsActive);
 public record UpdateStatus(string Status, string? Note);
+public record MyUniversity(Guid Id, string Name, string ShortCode, string Province, string? Domain, string? Website);
+public record UpdateMyUniversity(string? Name, string? Province, string? Domain, string? Website, string? LogoUrl);
+public record FacultyDto(Guid Id, string Name, Guid UniversityId);
+public record NewFaculty(string Name, Guid? UniversityId);
+public record RenameFaculty(string Name);
 
 /// <summary>
 /// University-admin operations, always constrained to the universities the caller administers
@@ -27,6 +33,10 @@ public sealed class UniAdminRepo(SupabaseDb db)
 
     private const string MineFilter =
         "university_id in (select university_id from public.university_admins where profile_id = @adminId)";
+
+    // Same scope, but for the universities table itself (its key column is `id`).
+    private const string MineUniversityFilter =
+        "id in (select university_id from public.university_admins where profile_id = @adminId)";
 
     public Task<UniSummary> SummaryAsync(Guid adminId) =>
         db.AsServiceAsync(async (c, tx) =>
@@ -140,17 +150,80 @@ public sealed class UniAdminRepo(SupabaseDb db)
     public Task<Guid> CreateProgrammeAsync(Guid adminId, NewProgramme n) =>
         db.AsServiceAsync(async (c, tx) =>
         {
-            var id = await c.ExecuteScalarAsync<Guid?>(new CommandDefinition("""
+            var uniId = await ResolveUniversityAsync(c, tx, adminId, n.UniversityId);
+            return await c.ExecuteScalarAsync<Guid>(new CommandDefinition("""
                 insert into public.programmes
                     (university_id, faculty_id, name, qualification, min_aps, duration_years, tuition_per_year, description, application_deadline, is_active)
-                select @UniversityId, @FacultyId, @Name, @Qualification::qualification_type, @MinAps,
-                       @DurationYears, @TuitionPerYear, @Description, @ApplicationDeadline, true
-                where exists (select 1 from public.university_admins where profile_id = @adminId and university_id = @UniversityId)
+                values (@uniId, @FacultyId, @Name, @Qualification::qualification_type, @MinAps,
+                        @DurationYears, @TuitionPerYear, @Description, @ApplicationDeadline, true)
                 returning id
-            """, new { adminId, n.UniversityId, n.FacultyId, n.Name, n.Qualification, n.MinAps, n.DurationYears, n.TuitionPerYear, n.Description, n.ApplicationDeadline }, tx));
-            if (id is null) throw new UnauthorizedAccessException("Not an admin of that university.");
-            return id.Value;
+            """, new { uniId, n.FacultyId, n.Name, n.Qualification, n.MinAps, n.DurationYears, n.TuitionPerYear, n.Description, n.ApplicationDeadline }, tx));
         });
+
+    // Resolve which university a uni-admin action targets: an explicit (owned) id, or their
+    // single university if they manage exactly one. Otherwise a clear error.
+    private static async Task<Guid> ResolveUniversityAsync(NpgsqlConnection c, IDbTransaction tx, Guid adminId, Guid? requested)
+    {
+        var owned = (await c.QueryAsync<Guid>(new CommandDefinition(
+            "select university_id from public.university_admins where profile_id = @adminId",
+            new { adminId }, tx))).ToList();
+
+        if (requested is Guid r)
+            return owned.Contains(r) ? r : throw new UnauthorizedAccessException("Not an admin of that university.");
+        if (owned.Count == 1) return owned[0];
+        if (owned.Count == 0) throw new InvalidOperationException("You are not linked to any university.");
+        throw new InvalidOperationException("You manage multiple universities — specify universityId.");
+    }
+
+    public Task<IEnumerable<MyUniversity>> GetMyUniversitiesAsync(Guid adminId) =>
+        db.AsServiceAsync(async (c, tx) =>
+            await c.QueryAsync<MyUniversity>(new CommandDefinition($"""
+                select u.id, u.name, u.short_code as ShortCode, u.province, u.domain, u.website
+                from public.universities u
+                where u.{MineUniversityFilter}
+                order by u.name
+            """, new { adminId }, tx)));
+
+    public Task<bool> UpdateUniversityAsync(Guid adminId, Guid id, UpdateMyUniversity u) =>
+        db.AsServiceAsync(async (c, tx) =>
+            await c.ExecuteAsync(new CommandDefinition($"""
+                update public.universities
+                set name = coalesce(@Name, name), province = coalesce(@Province, province),
+                    domain = coalesce(@Domain, domain), website = coalesce(@Website, website),
+                    logo_url = coalesce(@LogoUrl, logo_url), updated_at = now()
+                where id = @id and {MineUniversityFilter}
+            """, new { adminId, id, u.Name, u.Province, u.Domain, u.Website, u.LogoUrl }, tx)) > 0);
+
+    public Task<IEnumerable<FacultyDto>> GetFacultiesAsync(Guid adminId) =>
+        db.AsServiceAsync(async (c, tx) =>
+            await c.QueryAsync<FacultyDto>(new CommandDefinition($"""
+                select id, name, university_id as UniversityId
+                from public.faculties where {MineFilter}
+                order by name
+            """, new { adminId }, tx)));
+
+    public Task<Guid> CreateFacultyAsync(Guid adminId, NewFaculty n) =>
+        db.AsServiceAsync(async (c, tx) =>
+        {
+            var uniId = await ResolveUniversityAsync(c, tx, adminId, n.UniversityId);
+            return await c.ExecuteScalarAsync<Guid>(new CommandDefinition("""
+                insert into public.faculties (university_id, name) values (@uniId, @Name)
+                on conflict (university_id, name) do update set name = excluded.name
+                returning id
+            """, new { uniId, n.Name }, tx));
+        });
+
+    public Task<bool> RenameFacultyAsync(Guid adminId, Guid id, string name) =>
+        db.AsServiceAsync(async (c, tx) =>
+            await c.ExecuteAsync(new CommandDefinition($"""
+                update public.faculties set name = @name where id = @id and {MineFilter}
+            """, new { adminId, id, name }, tx)) > 0);
+
+    public Task<bool> DeleteFacultyAsync(Guid adminId, Guid id) =>
+        db.AsServiceAsync(async (c, tx) =>
+            await c.ExecuteAsync(new CommandDefinition($"""
+                delete from public.faculties where id = @id and {MineFilter}
+            """, new { adminId, id }, tx)) > 0);
 
     public Task<bool> UpdateProgrammeAsync(Guid adminId, Guid id, UpdateProgramme u) =>
         db.AsServiceAsync(async (c, tx) =>
@@ -252,6 +325,56 @@ public sealed class UniAdminController(UniAdminRepo repo, IUserContext me, IAudi
             return Ok(new { id });
         }
         catch (UnauthorizedAccessException) { return Forbid(); }
+        catch (InvalidOperationException ex) { return BadRequest(new { error = ex.Message }); }
+    }
+
+    // Which university/universities the admin manages (frontend uses this for pickers/headers).
+    [HttpGet("universities")]
+    public async Task<ActionResult<IEnumerable<MyUniversity>>> MyUniversities()
+        => Ok(await repo.GetMyUniversitiesAsync(AdminId));
+
+    [HttpPatch("universities/{id}")]
+    public async Task<IActionResult> UpdateUniversity(Guid id, [FromBody] UpdateMyUniversity body)
+    {
+        if (!await repo.UpdateUniversityAsync(AdminId, id, body))
+            return NotFound(new { error = "University not found for your account." });
+        await audit.LogAsync(AdminId, "university.updated", "university", id);
+        return NoContent();
+    }
+
+    [HttpGet("faculties")]
+    public async Task<ActionResult<IEnumerable<FacultyDto>>> Faculties()
+        => Ok(await repo.GetFacultiesAsync(AdminId));
+
+    [HttpPost("faculties")]
+    public async Task<ActionResult<object>> CreateFaculty([FromBody] NewFaculty body)
+    {
+        try
+        {
+            var id = await repo.CreateFacultyAsync(AdminId, body);
+            await audit.LogAsync(AdminId, "faculty.created", "faculty", id, new { body.Name });
+            return Ok(new { id });
+        }
+        catch (UnauthorizedAccessException) { return Forbid(); }
+        catch (InvalidOperationException ex) { return BadRequest(new { error = ex.Message }); }
+    }
+
+    [HttpPatch("faculties/{id}")]
+    public async Task<IActionResult> RenameFaculty(Guid id, [FromBody] RenameFaculty body)
+    {
+        if (!await repo.RenameFacultyAsync(AdminId, id, body.Name))
+            return NotFound(new { error = "Faculty not found for your university." });
+        await audit.LogAsync(AdminId, "faculty.updated", "faculty", id);
+        return NoContent();
+    }
+
+    [HttpDelete("faculties/{id}")]
+    public async Task<IActionResult> DeleteFaculty(Guid id)
+    {
+        if (!await repo.DeleteFacultyAsync(AdminId, id))
+            return NotFound(new { error = "Faculty not found for your university." });
+        await audit.LogAsync(AdminId, "faculty.deleted", "faculty", id);
+        return NoContent();
     }
 
     [HttpPatch("programmes/{id}")]
