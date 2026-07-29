@@ -72,6 +72,15 @@ public sealed class PaymentService(SupabaseDb db, IConfiguration cfg) : IPayment
             """, new { reference }));
     }
 
+    public async Task<bool> HasPaidFeeAsync(Guid studentId)
+    {
+        return await db.AsServiceReadAsync(async c =>
+            await c.ExecuteScalarAsync<bool>("""
+                select exists(select 1 from public.payments
+                              where student_id = @studentId and status = 'paid')
+            """, new { studentId }));
+    }
+
     private static string BuildPayFastUrl(string reference, decimal amount, Guid userId)
     {
         // TODO: Build PayFast payment URL with merchant ID, signature, etc.

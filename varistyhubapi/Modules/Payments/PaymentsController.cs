@@ -72,6 +72,18 @@ public sealed class PaymentsController(IPaymentService paymentService) : Control
     }
 
     /// <summary>
+    /// Whether the current student has a paid application fee. The frontend calls this on the
+    /// application form to show a "pay first" banner before the student tries to submit.
+    /// </summary>
+    [HttpGet("application-fee/status")]
+    [Authorize]
+    public async Task<ActionResult<object>> FeeStatus()
+    {
+        var userId = Guid.Parse(User.FindFirst("sub")?.Value ?? "");
+        return Ok(new { paid = await paymentService.HasPaidFeeAsync(userId) });
+    }
+
+    /// <summary>
     /// Check payment status by reference (for testing/debugging).
     /// </summary>
     [HttpGet("status/{reference}")]

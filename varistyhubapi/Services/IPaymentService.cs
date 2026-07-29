@@ -20,6 +20,12 @@ public interface IPaymentService
     /// Get payment status for a user.
     /// </summary>
     Task<PaymentStatus?> GetStatusAsync(string reference);
+
+    /// <summary>
+    /// Whether the student has a paid application fee (the gate for creating applications).
+    /// Mirrors the check in ApplicationRepo.CreateAsync.
+    /// </summary>
+    Task<bool> HasPaidFeeAsync(Guid studentId);
 }
 
 /// <summary>
