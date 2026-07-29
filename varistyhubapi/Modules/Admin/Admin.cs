@@ -228,18 +228,6 @@ public sealed class AdminRepo(SupabaseDb db)
                 where (@Role is null or role::text = @Role)
             """, b, tx)));
 
-    /// <summary>Record a paid application fee for a student (manual/EFT approval or testing).</summary>
-    public Task MarkFeePaidAsync(Guid studentId) =>
-        db.AsServiceAsync(async (c, tx) =>
-        {
-            await c.ExecuteAsync(new CommandDefinition("""
-                insert into public.payments (student_id, reference, amount, currency, method, status, description, paid_at)
-                values (@studentId, 'MANUAL-' || replace(gen_random_uuid()::text, '-', ''),
-                        150, 'ZAR', 'eft'::payment_method, 'paid'::payment_status, 'Manual fee approval', now())
-            """, new { studentId }, tx));
-            return 0;
-        });
-
     public Task LinkAsync(LinkRequest r) =>
         db.AsServiceAsync(async (c, tx) =>
         {
@@ -430,15 +418,6 @@ public sealed class AdminController(AdminRepo repo, IAuditService audit, AuthSer
         var count = await repo.BroadcastAsync(body);
         await audit.LogAsync(ActorId, "notification.broadcast", "notification", null, new { body.Title, count });
         return Ok(new { delivered = count });
-    }
-
-    // Manually record a paid application fee for a student (EFT/manual approval, or testing).
-    [HttpPost("students/{studentId}/mark-fee-paid")]
-    public async Task<IActionResult> MarkFeePaid(Guid studentId)
-    {
-        await repo.MarkFeePaidAsync(studentId);
-        await audit.LogAsync(ActorId, "payment.manual_paid", "student", studentId);
-        return NoContent();
     }
 
     [HttpPost("links")]
