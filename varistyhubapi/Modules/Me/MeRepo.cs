@@ -96,6 +96,40 @@ public sealed class MeRepo(SupabaseDb db, IUserContext me)
         db.AsUserAsync(me.UserId!, me.Email, async (c, tx) =>
             await c.ExecuteScalarAsync<int?>(new CommandDefinition(
                 "select aps from public.student_aps where student_id = auth.uid() limit 1", transaction: tx)));
+
+    /// <summary>One-query dashboard snapshot for the current student.</summary>
+    public Task<StudentSummary> SummaryAsync() =>
+        db.AsUserAsync(me.UserId!, me.Email, async (c, tx) =>
+            await c.QueryFirstAsync<StudentSummary>(new CommandDefinition("""
+                select
+                  (select count(*)::int from public.applications where student_id = auth.uid()) as Applications,
+                  (select count(*)::int from public.applications where student_id = auth.uid() and status = 'approved') as ApplicationsAccepted,
+                  (select count(*)::int from public.applications where student_id = auth.uid()
+                     and status not in ('approved','rejected','withdrawn')) as ApplicationsPending,
+                  (with my as (select coalesce((select aps from public.student_aps where student_id = auth.uid()), 0) as aps)
+                   select count(*)::int from public.programmes p cross join my
+                   where p.is_active and my.aps >= p.min_aps
+                     and not exists (
+                       select 1 from public.programme_requirements r
+                       where r.programme_id = p.id and not exists (
+                         select 1 from public.student_results sr
+                         where sr.student_id = auth.uid() and sr.subject_name = r.subject_name and sr.level >= r.min_level))
+                  ) as EligibleProgrammes,
+                  (select count(*)::int from public.saved_jobs where student_id = auth.uid()) as SavedJobs,
+                  (select count(*)::int from public.bursary_bookmarks where student_id = auth.uid()) as BookmarkedBursaries,
+                  (select count(*)::int from public.notifications where user_id = auth.uid() and is_read = false) as UnreadNotifications,
+                  exists(select 1 from public.payments where student_id = auth.uid() and status = 'paid') as FeePaid,
+                  (select count(*)::int from (
+                     select p.application_deadline as d from public.applications a
+                       join public.programmes p on p.id = a.programme_id
+                       where a.student_id = auth.uid() and p.application_deadline >= current_date
+                     union all
+                     select b.closes_on from public.bursary_bookmarks bb
+                       join public.bursaries b on b.id = bb.bursary_id
+                       where bb.student_id = auth.uid() and b.closes_on >= current_date
+                   ) x) as UpcomingDeadlines,
+                  (select aps from public.student_aps where student_id = auth.uid()) as Aps
+            """, transaction: tx)));
 }
 
 /// <summary>

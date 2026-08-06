@@ -54,4 +54,9 @@ public sealed class MeController(MeRepo repo, EligibilityRepo eligibility) : Con
     [HttpGet("eligible-programmes")]
     public async Task<ActionResult<IEnumerable<EligibleProgramme>>> GetEligibleProgrammes()
         => Ok(await eligibility.EligibleProgrammesAsync());
+
+    /// <summary>Dashboard snapshot for the student landing page.</summary>
+    [HttpGet("summary")]
+    public async Task<ActionResult<StudentSummary>> GetSummary()
+        => Ok(await repo.SummaryAsync());
 }
