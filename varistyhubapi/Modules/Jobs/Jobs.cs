@@ -1,5 +1,6 @@
 using System.Data;
 using Dapper;
+using Npgsql;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 using VarsityHub.Services;
@@ -23,7 +24,7 @@ public record JobDto
 
 public record ApplyJob(Guid? CvDocumentId);
 
-public sealed class JobRepo(SupabaseDb db, IUserContext me)
+public sealed class JobRepo(SupabaseDb db, IUserContext me, INotificationService notify)
 {
     public Task<IEnumerable<JobDto>> ListAsync(string? type, bool? remote, string? q) =>
         db.AsUserAsync(me.UserId ?? "", me.Email, async (c, tx) =>
@@ -38,13 +39,34 @@ public sealed class JobRepo(SupabaseDb db, IUserContext me)
                 order by coalesce(closes_on, 'infinity'::date), created_at desc
             """, new { type, remote, q }, tx)));
 
-    public Task<Guid> ApplyAsync(Guid jobId, Guid? cvDocumentId) =>
-        db.AsUserAsync(me.UserId!, me.Email, async (c, tx) =>
-            await c.ExecuteScalarAsync<Guid>(new CommandDefinition("""
-                insert into public.job_applications (job_id, student_id, cv_document_id, status)
-                values (@jobId, auth.uid(), @cvDocumentId, 'applied')
-                returning id
-            """, new { jobId, cvDocumentId }, tx)));
+    public async Task<Guid> ApplyAsync(Guid jobId, Guid? cvDocumentId)
+    {
+        Guid appId; Guid? postedBy; string? title;
+        try
+        {
+            (appId, postedBy, title) = await db.AsUserAsync(me.UserId!, me.Email, async (c, tx) =>
+            {
+                var id = await c.ExecuteScalarAsync<Guid>(new CommandDefinition("""
+                    insert into public.job_applications (job_id, student_id, cv_document_id, status)
+                    values (@jobId, auth.uid(), @cvDocumentId, 'applied')
+                    returning id
+                """, new { jobId, cvDocumentId }, tx));
+                var info = await c.QueryFirstOrDefaultAsync<(Guid? PostedBy, string? Title)>(new CommandDefinition(
+                    "select posted_by, title from public.jobs where id = @jobId", new { jobId }, tx));
+                return (id, info.PostedBy, info.Title);
+            });
+        }
+        catch (PostgresException ex) when (ex.SqlState == "23505")
+        {
+            throw new InvalidOperationException("You have already applied to this job.");
+        }
+
+        // Notify the employer/admin who posted the job (service path).
+        if (postedBy is Guid pb)
+            await notify.NotifyAsync(pb, "job", "New job applicant",
+                $"A student applied to '{title}'.", "/employer-applicants");
+        return appId;
+    }
 
     public Task SaveAsync(Guid jobId) =>
         db.AsUserAsync(me.UserId!, me.Email, async (c, tx) =>

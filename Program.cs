@@ -146,6 +146,7 @@ builder.Services.AddAuthorization(o =>
     o.AddPolicy("Counsellor", p => p.RequireClaim("user_role", "counsellor", "super_admin"));
     o.AddPolicy("Parent", p => p.RequireClaim("user_role", "parent", "super_admin"));
     o.AddPolicy("Student", p => p.RequireClaim("user_role", "student", "super_admin"));
+    o.AddPolicy("Employer", p => p.RequireClaim("user_role", "employer", "super_admin"));
 });
 
 // Data access & per-request user context
@@ -197,6 +198,7 @@ builder.Services.AddScoped<VarsityHub.Modules.Accommodation.AccommodationRepo>()
 builder.Services.AddScoped<VarsityHub.Modules.Counsellor.CounsellorRepo>();
 builder.Services.AddScoped<VarsityHub.Modules.Parent.ParentRepo>();
 builder.Services.AddScoped<VarsityHub.Modules.Admin.AdminRepo>();
+builder.Services.AddScoped<VarsityHub.Modules.Recruitment.RecruitmentRepo>();
 
 // Background jobs
 builder.Services.AddHostedService<DeadlineReminderService>();

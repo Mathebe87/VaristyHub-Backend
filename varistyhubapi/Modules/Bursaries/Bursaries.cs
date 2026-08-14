@@ -1,5 +1,6 @@
 using System.Data;
 using Dapper;
+using Npgsql;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 using VarsityHub.Services;
@@ -21,7 +22,7 @@ public record BursaryDto
     public DateTime? ClosesOn { get; init; }
 }
 
-public sealed class BursaryRepo(SupabaseDb db, IUserContext me)
+public sealed class BursaryRepo(SupabaseDb db, IUserContext me, INotificationService notify)
 {
     public Task<IEnumerable<BursaryDto>> ListAsync(string? field, int? maxAps) =>
         db.AsUserAsync(me.UserId ?? "", me.Email, async (c, tx) =>
@@ -35,13 +36,33 @@ public sealed class BursaryRepo(SupabaseDb db, IUserContext me)
                 order by coalesce(closes_on, 'infinity'::date), name
             """, new { field, maxAps }, tx)));
 
-    public Task<Guid> ApplyAsync(Guid bursaryId) =>
-        db.AsUserAsync(me.UserId!, me.Email, async (c, tx) =>
-            await c.ExecuteScalarAsync<Guid>(new CommandDefinition("""
-                insert into public.bursary_applications (bursary_id, student_id, status)
-                values (@bursaryId, auth.uid(), 'submitted')
-                returning id
-            """, new { bursaryId }, tx)));
+    public async Task<Guid> ApplyAsync(Guid bursaryId)
+    {
+        Guid appId; Guid? createdBy; string? name;
+        try
+        {
+            (appId, createdBy, name) = await db.AsUserAsync(me.UserId!, me.Email, async (c, tx) =>
+            {
+                var id = await c.ExecuteScalarAsync<Guid>(new CommandDefinition("""
+                    insert into public.bursary_applications (bursary_id, student_id, status)
+                    values (@bursaryId, auth.uid(), 'submitted')
+                    returning id
+                """, new { bursaryId }, tx));
+                var info = await c.QueryFirstOrDefaultAsync<(Guid? CreatedBy, string? Name)>(new CommandDefinition(
+                    "select created_by, name from public.bursaries where id = @bursaryId", new { bursaryId }, tx));
+                return (id, info.CreatedBy, info.Name);
+            });
+        }
+        catch (PostgresException ex) when (ex.SqlState == "23505")
+        {
+            throw new InvalidOperationException("You have already applied to this bursary.");
+        }
+
+        if (createdBy is Guid cb)
+            await notify.NotifyAsync(cb, "bursary", "New bursary application",
+                $"A student applied to '{name}'.", "/bursaries");
+        return appId;
+    }
 
     public Task BookmarkAsync(Guid bursaryId) =>
         db.AsUserAsync(me.UserId!, me.Email, async (c, tx) =>

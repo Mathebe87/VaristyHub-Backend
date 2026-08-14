@@ -11,7 +11,8 @@ public record AdminUser(Guid Id, string Role, string FullName, string? Email, st
 public record SetRole(string Role);
 public record CreateUserRequest(
     string FullName, string Email, string Password, string Role,
-    string? Phone, Guid? UniversityId, Guid? StudentId, string? Relationship, string? Title);
+    string? Phone, Guid? UniversityId, Guid? StudentId, string? Relationship, string? Title,
+    string? CompanyName);
 public record AdminUniversity(Guid Id, string Name, string ShortCode, string Province, string? Domain, string? Website, bool IsVerified);
 public record NewUniversity(string Name, string ShortCode, string Province, string? Domain, string? Website);
 public record UpdateUniversity(string? Name, string? Province, string? Domain, string? Website, bool? IsVerified);
@@ -250,7 +251,9 @@ public sealed class AdminRepo(SupabaseDb db)
 [ApiController]
 [Route("api/admin")]
 [Authorize(Policy = "Admin")]
-public sealed class AdminController(AdminRepo repo, IAuditService audit, AuthService authService, IUserContext me) : ControllerBase
+public sealed class AdminController(
+    AdminRepo repo, IAuditService audit, AuthService authService, IUserContext me,
+    VarsityHub.Modules.Recruitment.RecruitmentRepo recruitment) : ControllerBase
 {
     private Guid ActorId => Guid.Parse(me.UserId!);
 
@@ -263,7 +266,7 @@ public sealed class AdminController(AdminRepo repo, IAuditService audit, AuthSer
         => Ok(await repo.UsersAsync(role, q, Math.Min(pageSize, 200), (Math.Max(1, page) - 1) * pageSize));
 
     private static readonly string[] Roles =
-        ["student", "counsellor", "parent", "university_admin", "super_admin"];
+        ["student", "counsellor", "parent", "university_admin", "super_admin", "employer"];
 
     // Create a user with a role (and optionally link them) in one call — for the admin console.
     [HttpPost("users")]
@@ -283,6 +286,8 @@ public sealed class AdminController(AdminRepo repo, IAuditService audit, AuthSer
                 await repo.LinkAsync(new LinkRequest("parent", id, psid, body.Relationship));
             else if (body.Role == "counsellor" && body.StudentId is Guid csid)
                 await repo.LinkAsync(new LinkRequest("counsellor", id, csid, null));
+            else if (body.Role == "employer")
+                await recruitment.CreateEmployerAsync(id, body.CompanyName ?? body.FullName);
 
             await audit.LogAsync(ActorId, "user.created", "user", id, new { body.Role, body.Email });
             return Ok(new { id });
