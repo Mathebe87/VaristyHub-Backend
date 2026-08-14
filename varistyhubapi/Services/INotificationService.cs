@@ -22,6 +22,12 @@ public interface INotificationService
     /// Get all notifications for a user (paginated, unread first).
     /// </summary>
     Task<IEnumerable<NotificationDetail>> GetForUserAsync(Guid userId, int page = 1, int pageSize = 20);
+
+    /// <summary>Count of unread notifications for a user (for the bell badge).</summary>
+    Task<int> UnreadCountAsync(Guid userId);
+
+    /// <summary>Mark all of a user's notifications read.</summary>
+    Task MarkAllReadAsync(Guid userId);
 }
 
 /// <summary>

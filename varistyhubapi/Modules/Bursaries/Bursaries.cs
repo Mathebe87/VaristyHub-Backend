@@ -22,8 +22,38 @@ public record BursaryDto
     public DateTime? ClosesOn { get; init; }
 }
 
+public record MyBursaryApplication(Guid Id, Guid BursaryId, string Name, string Provider, string Status, DateTime SubmittedAt);
+
 public sealed class BursaryRepo(SupabaseDb db, IUserContext me, INotificationService notify)
 {
+    private const string BursarySelect = """
+        select id, name, provider, field::text as Field, amount_text as AmountText,
+               covers as Covers, min_aps as MinAps, description, closes_on as ClosesOn
+        from public.bursaries
+        """;
+
+    public Task<BursaryDto?> GetByIdAsync(Guid id) =>
+        db.AsUserAsync(me.UserId ?? "", me.Email, async (c, tx) =>
+            await c.QueryFirstOrDefaultAsync<BursaryDto>(new CommandDefinition(
+                $"{BursarySelect} where id = @id", new { id }, tx)));
+
+    public Task<IEnumerable<MyBursaryApplication>> MyApplicationsAsync() =>
+        db.AsUserAsync(me.UserId!, me.Email, async (c, tx) =>
+            await c.QueryAsync<MyBursaryApplication>(new CommandDefinition("""
+                select ba.id, ba.bursary_id as BursaryId, b.name, b.provider, ba.status::text as Status, ba.submitted_at as SubmittedAt
+                from public.bursary_applications ba join public.bursaries b on b.id = ba.bursary_id
+                where ba.student_id = auth.uid() order by ba.submitted_at desc
+            """, transaction: tx)));
+
+    public Task<IEnumerable<BursaryDto>> BookmarkedAsync() =>
+        db.AsUserAsync(me.UserId!, me.Email, async (c, tx) =>
+            await c.QueryAsync<BursaryDto>(new CommandDefinition("""
+                select b.id, b.name, b.provider, b.field::text as Field, b.amount_text as AmountText,
+                       b.covers as Covers, b.min_aps as MinAps, b.description, b.closes_on as ClosesOn
+                from public.bursaries b join public.bursary_bookmarks bb on bb.bursary_id = b.id
+                where bb.student_id = auth.uid() order by bb.created_at desc
+            """, transaction: tx)));
+
     public Task<IEnumerable<BursaryDto>> ListAsync(string? field, int? maxAps) =>
         db.AsUserAsync(me.UserId ?? "", me.Email, async (c, tx) =>
             await c.QueryAsync<BursaryDto>(new CommandDefinition("""
@@ -99,6 +129,24 @@ public sealed class BursariesController(BursaryRepo repo, RecommendationService 
     [Authorize]
     public async Task<ActionResult<IEnumerable<RankedItem>>> Recommended()
         => Ok(await recs.RecommendBursariesAsync());
+
+    [HttpGet("mine")]
+    [Authorize]
+    public async Task<ActionResult<IEnumerable<MyBursaryApplication>>> Mine()
+        => Ok(await repo.MyApplicationsAsync());
+
+    [HttpGet("bookmarked")]
+    [Authorize]
+    public async Task<ActionResult<IEnumerable<BursaryDto>>> Bookmarked()
+        => Ok(await repo.BookmarkedAsync());
+
+    [HttpGet("{id:guid}")]
+    [AllowAnonymous]
+    public async Task<ActionResult<BursaryDto>> GetById(Guid id)
+    {
+        var b = await repo.GetByIdAsync(id);
+        return b is null ? NotFound() : Ok(b);
+    }
 
     [HttpPost("{id}/apply")]
     [Authorize]

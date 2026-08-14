@@ -31,6 +31,9 @@ public interface IPaymentService
     /// Handle a PayFast ITN callback: verify with PayFast, then mark the payment paid.
     /// </summary>
     Task<bool> HandleItnAsync(IDictionary<string, string> data);
+
+    /// <summary>DEV ONLY: record a paid fee for a student, to test the flow without PayFast.</summary>
+    Task DevMarkFeePaidAsync(Guid studentId);
 }
 
 /// <summary>

@@ -59,4 +59,12 @@ public sealed class MeController(MeRepo repo, EligibilityRepo eligibility) : Con
     [HttpGet("summary")]
     public async Task<ActionResult<StudentSummary>> GetSummary()
         => Ok(await repo.SummaryAsync());
+
+    [HttpGet("recommendations")]
+    public async Task<ActionResult<IEnumerable<StudentRecommendation>>> GetRecommendations()
+        => Ok(await repo.RecommendationsAsync());
+
+    [HttpGet("payments")]
+    public async Task<ActionResult<IEnumerable<PaymentHistoryItem>>> GetPayments()
+        => Ok(await repo.PaymentsAsync());
 }

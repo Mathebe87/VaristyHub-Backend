@@ -47,4 +47,9 @@ public sealed class DocumentsController(IStorageService storage, IUserContext me
         var docs = await storage.GetDocumentsAsync(userId);
         return Ok(docs);
     }
+
+    /// <summary>Delete one of the current student's documents.</summary>
+    [HttpDelete("{id}")]
+    public async Task<IActionResult> Delete(Guid id)
+        => await storage.DeleteDocumentAsync(Guid.Parse(me.UserId!), id) ? NoContent() : NotFound();
 }

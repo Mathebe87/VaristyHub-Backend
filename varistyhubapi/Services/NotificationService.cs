@@ -43,6 +43,21 @@ public sealed class NotificationService(SupabaseDb db) : INotificationService
     /// Get all notifications for a user.
     /// Unread notifications appear first, then paginated.
     /// </summary>
+    public Task<int> UnreadCountAsync(Guid userId) =>
+        db.AsServiceAsync(async (c, tx) =>
+            await c.ExecuteScalarAsync<int>(new CommandDefinition(
+                "select count(*)::int from public.notifications where user_id = @userId and is_read = false",
+                new { userId }, tx)));
+
+    public Task MarkAllReadAsync(Guid userId) =>
+        db.AsServiceAsync(async (c, tx) =>
+        {
+            await c.ExecuteAsync(new CommandDefinition(
+                "update public.notifications set is_read = true where user_id = @userId and is_read = false",
+                new { userId }, tx));
+            return 0;
+        });
+
     public Task<IEnumerable<NotificationDetail>> GetForUserAsync(Guid userId, int page = 1, int pageSize = 20) =>
         db.AsServiceAsync(async (c, tx) =>
         {

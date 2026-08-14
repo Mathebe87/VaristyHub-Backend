@@ -130,6 +130,17 @@ public sealed class PaymentService(
         return false;
     }
 
+    public Task DevMarkFeePaidAsync(Guid studentId) =>
+        db.AsServiceAsync(async (c, tx) =>
+        {
+            await c.ExecuteAsync(new CommandDefinition("""
+                insert into public.payments (student_id, reference, amount, currency, method, status, description, paid_at)
+                values (@studentId, 'DEV-' || replace(gen_random_uuid()::text, '-', ''),
+                        150, 'ZAR', 'card'::payment_method, 'paid'::payment_status, 'Dev test fee', now())
+            """, new { studentId }, tx));
+            return 0;
+        });
+
     private string BuildPayFastUrl(string reference, decimal amount, Guid userId)
     {
         var pf = cfg.GetSection("Payments:PayFast");

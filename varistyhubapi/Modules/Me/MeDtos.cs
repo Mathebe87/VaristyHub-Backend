@@ -18,6 +18,10 @@ public record ResultInput(string SubjectName, int Level, int Percentage, bool Is
 
 public record EligibleProgramme(Guid Id, string Name, int MinAps, string University, string ShortCode);
 
+public record StudentRecommendation(Guid Id, string Title, string? Body, DateTime CreatedAt);
+public record PaymentHistoryItem(Guid Id, decimal Amount, string Currency, string Method, string Status,
+    string? Reference, string? Description, DateTime? PaidAt, DateTime CreatedAt);
+
 /// <summary>Aggregated snapshot for the student dashboard landing page.</summary>
 public record StudentSummary(
     int Applications, int ApplicationsAccepted, int ApplicationsPending,

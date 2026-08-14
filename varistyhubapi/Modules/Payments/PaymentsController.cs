@@ -9,8 +9,22 @@ namespace VarsityHub.Modules.Payments;
 /// </summary>
 [ApiController]
 [Route("api/[controller]")]
-public sealed class PaymentsController(IPaymentService paymentService) : ControllerBase
+public sealed class PaymentsController(IPaymentService paymentService, IConfiguration config) : ControllerBase
 {
+    /// <summary>
+    /// DEV ONLY (Payments:AllowDevConfirm=true): mark the current student's fee paid without
+    /// PayFast, so the application flow can be tested. Returns 404 when disabled.
+    /// </summary>
+    [HttpPost("dev/mark-paid")]
+    [Authorize]
+    public async Task<IActionResult> DevMarkPaid()
+    {
+        if (!config.GetValue<bool>("Payments:AllowDevConfirm")) return NotFound();
+        var userId = Guid.Parse(User.FindFirst("sub")?.Value ?? "");
+        await paymentService.DevMarkFeePaidAsync(userId);
+        return NoContent();
+    }
+
     /// <summary>
     /// Initiate application fee payment.
     /// Returns a checkout URL to redirect the user to the payment gateway.

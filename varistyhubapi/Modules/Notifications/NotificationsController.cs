@@ -36,4 +36,19 @@ public sealed class NotificationsController(INotificationService notificationSer
         await notificationService.MarkReadAsync(id);
         return NoContent();
     }
+
+    private Guid UserId => Guid.Parse(User.FindFirst("sub")?.Value ?? "");
+
+    /// <summary>Unread count for the current user (bell badge).</summary>
+    [HttpGet("unread-count")]
+    public async Task<ActionResult<object>> UnreadCount()
+        => Ok(new { count = await notificationService.UnreadCountAsync(UserId) });
+
+    /// <summary>Mark all of the current user's notifications read.</summary>
+    [HttpPatch("read-all")]
+    public async Task<IActionResult> MarkAllRead()
+    {
+        await notificationService.MarkAllReadAsync(UserId);
+        return NoContent();
+    }
 }

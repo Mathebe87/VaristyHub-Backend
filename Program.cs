@@ -199,6 +199,8 @@ builder.Services.AddScoped<VarsityHub.Modules.Counsellor.CounsellorRepo>();
 builder.Services.AddScoped<VarsityHub.Modules.Parent.ParentRepo>();
 builder.Services.AddScoped<VarsityHub.Modules.Admin.AdminRepo>();
 builder.Services.AddScoped<VarsityHub.Modules.Recruitment.RecruitmentRepo>();
+builder.Services.AddScoped<VarsityHub.Modules.ContentAdmin.ContentAdminRepo>();
+builder.Services.AddScoped<VarsityHub.Modules.Messaging.MessagingRepo>();
 
 // Background jobs
 builder.Services.AddHostedService<DeadlineReminderService>();

@@ -23,9 +23,35 @@ public record JobDto
 }
 
 public record ApplyJob(Guid? CvDocumentId);
+public record MyJobApplication(Guid Id, Guid JobId, string Title, string Company, string Status, DateTime AppliedAt);
 
 public sealed class JobRepo(SupabaseDb db, IUserContext me, INotificationService notify)
 {
+    public Task<JobDto?> GetByIdAsync(Guid id) =>
+        db.AsUserAsync(me.UserId ?? "", me.Email, async (c, tx) =>
+            await c.QueryFirstOrDefaultAsync<JobDto>(new CommandDefinition("""
+                select id, title, company, type::text as Type, location, salary_text as SalaryText,
+                       description, tags as Tags, is_remote as IsRemote, closes_on as ClosesOn
+                from public.jobs where id = @id
+            """, new { id }, tx)));
+
+    public Task<IEnumerable<MyJobApplication>> MyApplicationsAsync() =>
+        db.AsUserAsync(me.UserId!, me.Email, async (c, tx) =>
+            await c.QueryAsync<MyJobApplication>(new CommandDefinition("""
+                select ja.id, ja.job_id as JobId, j.title, j.company, ja.status::text as Status, ja.applied_at as AppliedAt
+                from public.job_applications ja join public.jobs j on j.id = ja.job_id
+                where ja.student_id = auth.uid() order by ja.applied_at desc
+            """, transaction: tx)));
+
+    public Task<IEnumerable<JobDto>> SavedAsync() =>
+        db.AsUserAsync(me.UserId!, me.Email, async (c, tx) =>
+            await c.QueryAsync<JobDto>(new CommandDefinition("""
+                select j.id, j.title, j.company, j.type::text as Type, j.location, j.salary_text as SalaryText,
+                       j.description, j.tags as Tags, j.is_remote as IsRemote, j.closes_on as ClosesOn
+                from public.jobs j join public.saved_jobs s on s.job_id = j.id
+                where s.student_id = auth.uid() order by s.created_at desc
+            """, transaction: tx)));
+
     public Task<IEnumerable<JobDto>> ListAsync(string? type, bool? remote, string? q) =>
         db.AsUserAsync(me.UserId ?? "", me.Email, async (c, tx) =>
             await c.QueryAsync<JobDto>(new CommandDefinition("""
@@ -102,6 +128,24 @@ public sealed class JobsController(JobRepo repo, RecommendationService recs) : C
     [Authorize]
     public async Task<ActionResult<IEnumerable<RankedItem>>> Recommended()
         => Ok(await recs.RecommendJobsAsync());
+
+    [HttpGet("mine")]
+    [Authorize]
+    public async Task<ActionResult<IEnumerable<MyJobApplication>>> Mine()
+        => Ok(await repo.MyApplicationsAsync());
+
+    [HttpGet("saved")]
+    [Authorize]
+    public async Task<ActionResult<IEnumerable<JobDto>>> Saved()
+        => Ok(await repo.SavedAsync());
+
+    [HttpGet("{id:guid}")]
+    [AllowAnonymous]
+    public async Task<ActionResult<JobDto>> GetById(Guid id)
+    {
+        var job = await repo.GetByIdAsync(id);
+        return job is null ? NotFound() : Ok(job);
+    }
 
     [HttpPost("{id}/apply")]
     [Authorize]

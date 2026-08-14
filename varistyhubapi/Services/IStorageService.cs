@@ -37,6 +37,9 @@ public interface IStorageService
     /// Get all documents for a student.
     /// </summary>
     Task<IEnumerable<DocumentDetail>> GetDocumentsAsync(Guid studentId);
+
+    /// <summary>Delete a student's own document (metadata row + storage object). False if not found.</summary>
+    Task<bool> DeleteDocumentAsync(Guid studentId, Guid documentId);
 }
 
 /// <summary>

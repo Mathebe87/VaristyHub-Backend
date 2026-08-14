@@ -97,6 +97,22 @@ public sealed class MeRepo(SupabaseDb db, IUserContext me)
             await c.ExecuteScalarAsync<int?>(new CommandDefinition(
                 "select aps from public.student_aps where student_id = auth.uid() limit 1", transaction: tx)));
 
+    public Task<IEnumerable<StudentRecommendation>> RecommendationsAsync() =>
+        db.AsUserAsync(me.UserId!, me.Email, async (c, tx) =>
+            await c.QueryAsync<StudentRecommendation>(new CommandDefinition("""
+                select id, title, body, created_at as CreatedAt
+                from public.career_recommendations
+                where student_id = auth.uid() order by created_at desc
+            """, transaction: tx)));
+
+    public Task<IEnumerable<PaymentHistoryItem>> PaymentsAsync() =>
+        db.AsUserAsync(me.UserId!, me.Email, async (c, tx) =>
+            await c.QueryAsync<PaymentHistoryItem>(new CommandDefinition("""
+                select id, amount, currency, method::text as Method, status::text as Status,
+                       reference, description, paid_at as PaidAt, created_at as CreatedAt
+                from public.payments where student_id = auth.uid() order by created_at desc
+            """, transaction: tx)));
+
     /// <summary>One-query dashboard snapshot for the current student.</summary>
     public Task<StudentSummary> SummaryAsync() =>
         db.AsUserAsync(me.UserId!, me.Email, async (c, tx) =>

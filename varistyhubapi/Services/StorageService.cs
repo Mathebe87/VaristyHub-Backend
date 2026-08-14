@@ -133,6 +133,24 @@ public sealed class StorageService : IStorageService
             """, new { studentId }, tx)));
     }
 
+    public async Task<bool> DeleteDocumentAsync(Guid studentId, Guid documentId)
+    {
+        var path = await _db.AsServiceAsync(async (c, tx) =>
+        {
+            var p = await c.ExecuteScalarAsync<string?>(new CommandDefinition(
+                "select storage_path from public.documents where id = @documentId and student_id = @studentId",
+                new { documentId, studentId }, tx));
+            if (p is null) return null;
+            await c.ExecuteAsync(new CommandDefinition(
+                "delete from public.documents where id = @documentId and student_id = @studentId",
+                new { documentId, studentId }, tx));
+            return p;
+        });
+        if (path is null) return false;
+        try { await DeleteAsync("documents", path); } catch { /* best-effort storage cleanup */ }
+        return true;
+    }
+
     private sealed record SignedUrlResponse(
         [property: System.Text.Json.Serialization.JsonPropertyName("url")] string Url);
 }
