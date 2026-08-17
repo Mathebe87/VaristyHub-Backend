@@ -271,6 +271,10 @@ app.UseAuthorization();
 
 app.MapControllers();
 
+// Deploy canary — anonymous, no DB. If this returns 200 with the marker below, the latest
+// commit is deployed. Bump the marker on each deploy test.
+app.MapGet("/api/version", () => Results.Ok(new { marker = "deploy-check-1", utc = DateTime.UtcNow }));
+
 // Liveness: process is up (no DB dependency) — this is Railway's healthcheck target.
 app.MapHealthChecks("/health", new HealthCheckOptions { Predicate = _ => false });
 // Readiness: includes the DB probe.
