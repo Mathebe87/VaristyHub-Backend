@@ -63,4 +63,4 @@ in the image.
   (there are none yet, so it's a no-op) — apply the initial schema in Supabase directly.
 - `AsUserAsync` runs SQL as the caller (RLS enforced) or the `anon` role for public reads;
   `AsServiceAsync` bypasses RLS for OTP, notifications, payment webhooks, and admin jobs.
-  Last updated by Mathebe Matjaola
+  Last updated by Mathebe Matjaola and Yanela Tonyela
