@@ -57,7 +57,7 @@ if (allowedOrigins is null || allowedOrigins.Length == 0)
 {
     var csv = builder.Configuration["Cors:Origins"];
     allowedOrigins = string.IsNullOrWhiteSpace(csv)
-        ? ["http://localhost:3000", "http://localhost:8080", "https://future-pathways-hub.vercel.app"]
+        ? ["http://localhost:3000", "http://localhost:8080", "https://future-pathways-hub.vercel.app", "https://future-pathways-hub-teal.vercel.app"]
         : csv.Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries);
 }
 builder.Services.AddCors(options =>
@@ -146,7 +146,6 @@ builder.Services.AddAuthorization(o =>
     o.AddPolicy("Counsellor", p => p.RequireClaim("user_role", "counsellor", "super_admin"));
     o.AddPolicy("Parent", p => p.RequireClaim("user_role", "parent", "super_admin"));
     o.AddPolicy("Student", p => p.RequireClaim("user_role", "student", "super_admin"));
-    o.AddPolicy("Employer", p => p.RequireClaim("user_role", "employer", "super_admin"));
 });
 
 // Data access & per-request user context
@@ -198,9 +197,6 @@ builder.Services.AddScoped<VarsityHub.Modules.Accommodation.AccommodationRepo>()
 builder.Services.AddScoped<VarsityHub.Modules.Counsellor.CounsellorRepo>();
 builder.Services.AddScoped<VarsityHub.Modules.Parent.ParentRepo>();
 builder.Services.AddScoped<VarsityHub.Modules.Admin.AdminRepo>();
-builder.Services.AddScoped<VarsityHub.Modules.Recruitment.RecruitmentRepo>();
-builder.Services.AddScoped<VarsityHub.Modules.ContentAdmin.ContentAdminRepo>();
-builder.Services.AddScoped<VarsityHub.Modules.Messaging.MessagingRepo>();
 
 // Background jobs
 builder.Services.AddHostedService<DeadlineReminderService>();
@@ -270,10 +266,6 @@ app.UseAuthentication();
 app.UseAuthorization();
 
 app.MapControllers();
-
-// Deploy canary — anonymous, no DB. If this returns 200 with the marker below, the latest
-// commit is deployed. Bump the marker on each deploy test.
-app.MapGet("/api/version", () => Results.Ok(new { marker = "deploy-check-1", utc = DateTime.UtcNow }));
 
 // Liveness: process is up (no DB dependency) — this is Railway's healthcheck target.
 app.MapHealthChecks("/health", new HealthCheckOptions { Predicate = _ => false });
